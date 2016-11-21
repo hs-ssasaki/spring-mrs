@@ -1,0 +1,117 @@
+---- Spring Securityの有効化 ------------
+■pom.xmlの編集
+
+■Spring Security Beanの定義
+・@EnableWebSecurityをクラスにつけたJavaConfigを定義
+　@EnableWebSecurity
+ public class WebSecurityConfig extends WebSecurityConfigurerAdapter{
+   @Override
+   public void configure(WebSecurity web) {
+     web.ignoring().antMatcher("/resources/**"); 
+ }
+
+・Web.xmlを編集
+ サーブレットコンテナが上記のコンフィグファイルを使用してDIコンテナを生成するようにする。
+ <context-param>
+   <param-name>contextConfigLocation</param-name>
+   <param-value>上記コンフィグファイルのクラス名</param-value>
+ </context-param>
+ 
+■サーブレットフィルタの設定
+・Spring Securityが提供しているサーブレットフィルタクラス(FilterChainProxy)をサーブレットコンテナに登録する
+・Web.xmlを編集。url-patternにSpring Securityを適用するURLパターンを指定。
+ <filter>
+     <filter-name>springSecurityFilterChain</filter-name>
+     <filter-class>
+        org.springframework.web.filter.DelegatingFilterProxy
+     </filter-class>
+ </filter>
+ <filter-mapping>
+   <filter-name>springSecurityFilterChain</filter-name>
+   <url-pattern>/*</url-pattern>
+ </filter-mapping>
+ 
+ ■ここまでで、アプリにアクセスするとデフォルトのログイン画面が表示される
+ ・ユーザはuser固定
+ ・パスワードは起動コンソールに表示される
+ 
+ ----- フォーム認証の適用 -------------
+ ■JavaConfig編集
+  public class WebSecurityConfig extends WebSecurityConfigurerAdapter{
+   @Override
+   public void configure(WebSecurity web) {
+     ..
+     http.formLogin(); 
+ }
+ 
+ ■ここまでで、デフォルトのフォーム画面によるログインは実装されている
+ 
+ ■カスタムログインフォームの作成
+ ・フォームloginForm.jspを作成
+ ・認証処理用のControllerを作成
+  GET /login で return "loginForm" するだけ
+ ・JavaConfigを編集。
+ 　作成したログインフォームをBean登録
+ http.formLogin().loginPage("<Controllerで定義したパス>").permitAll();
+　http.authorizeRequests().anyRequest().authoenticated();
+ 
+　・デフォルト動作のカスタマイズ
+　・JavaConfigを編集。
+　　//...
+  .loginProcessingUrl("authenticate")
+  .usernameParameter("uid")
+  .passwordParameter("pwd")
+  .permitAll();
+  
+  ■認証成功時のレスポンス処理
+  　・Spring Securityが提供する、AuthenticationSuccessHandlerインターフェースの実装クラスを使う
+ 　 　SavedRequestAwareAuthenticationSuccessHandler （デフォルト。認証前のアクセスページへ。またはアプリのルートパス(/)へ）
+   SimpleAuthenticationSuccessHandler　(コンストラクタに指定したURLへ)
+   ForwardAuthenticationSuccessHandler
+   
+  　・デフォルト動作のカスタマイズ
+  　　JavaConfigで遷移するデフォルトパスを変更できる 
+   http.formLogin().defaultSuccessUrl("/menu").permitAll()
+
+　■認証失敗時のレスポンス処理
+　・AuthenitcationFailureHanderインターフェースの実装クラスを使う
+　SimpleUrlAuthenticationFailureHandler
+ ExceptionMappingAuthenticationFailureHander
+ DelegatingAuthenticationFailureHandler
+ 
+ ・デフォルト動作のカスタマイズ
+ JavaConfigでエラー時に遷移するデフォルトパスを変更できる
+ 
+ --- データベース認証 ---
+ ■UserDetails実装クラスの作成
+ ・UserDetailsは、認証処理で必要となる資格情報（ユーザ名とパスワード）とユーザ状態を格納するインターフェース
+ 　（getUsername, getPaaword, getAuthoritiesなどが定義されている）
+ public interface UserDetails extends Serializable {}
+
+・UserDetailsの実装クラスを実装する
+  ユーザ情報と権限情報をプロパティに保持
+  メソッドを実装
+  認証成功後ユーザ情報にアクセスできるようにgetterを用意　
+　public class AccountUserDetails implements UserDetails {}
+
+■UserDetailsServiceの作成
+・資格情報とユーザの状態をデータストアから取得するインターフェース
+　public interface UserDetailsService {}
+
+・UserDetailsServiceの実装クラスを作成
+　DBから検索し、UserDetails実装クラスのオブジェクトを作って返却する
+ public class AccountUserDetailsService implements UserDetailsService {}
+ 
+■認証処理の適用
+・JavaConfigを編集。
+ 作成したUserDetailsServiceをインジェクションし、AuthenticationManagerBuilderに登録する
+ ※これで、DaoAuthenticationProviderが有効になる
+ //...
+  auth.userDetailsService(userDetailsService).passwordEncoder(passwordEncoder());
+ 
+■パスワードのハッシュ化
+　・上記コンフィグファイルの中で指定する。
+  BCryptPasswordEncoder(), StandardPasswordEncoder(), NoOpPasswordEncoder
+　@Bean
+ PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
+ 

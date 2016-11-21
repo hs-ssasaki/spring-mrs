@@ -1,0 +1,80 @@
+　・クラスに、@Entityをつける
+　・クラスに、@Table(name = "テーブル名"）でテーブルとマッピングする。省略した場合はクラス名の大文字のテーブル名。
+
+　・主キーになるプロパティに、@Idをつける
+　・複合主キーには、@EmbeddedIdをつける
+　・主キーを自動生成する場合は、@GenerateValue
+
+　・マッピングさせるカラムを、@Columnで指定する。省略した倍はプロパティ名の大文字のプロパティ。
+
+　・外部キーになるプロパティには、@ManyToOneなどで関連を指定し、　※Roomなど単数型のプロパティにつけることになる
+　　@JoinColumn(name="外部テーブルのカラム名")で、紐付けられるテーブルの値を特定するための外部キーのカラム名を指定する
+　　
+　・@OneToMany（mappedBy="", cascade=CascadeType.ALL) ※List型などの複数型のプロパティにつけることになる
+　　mappedByは、双方向の場合の外部キーの指定。一方が@JoinColumnしている場合に他方はこうれを使うことで双方向だとわかりやすい。
+　　cascadeは、自身の操作を関連Entityへ伝播させられる。
+　　
+　・@PersistenceContextをフィールドにつけることで、EntitiManagerを注入できる
+　・永続コンテキスト(PersistenceContext)は、トランザクションごとに作られ、分離されている
+　・トランザクションが終了すると、すべてのEntityが分離状態に遷移する
+
+　・フェッチ
+　　関連しているEntityのデータを実際にSQLを発行して、同期する仕組み。フェッチが行われるまでSQLは発行されない。
+　　Lazyフェッチ： 関連Entityが格納されているプロパティへのアクセスが始めて行われたタイミング（@OneToOne, @ManyToOne）
+　　Eagerフェッチ：本体Entityに対してEntityManagerのAPIが実行されたタイミング（他の関連）
+　　@OneToMany(mappedBy="", cascade="", fetch=FetchType.EAGER) で指定することもできる
+
+　・トランザクション管理するメソッドには、@Transactionalをつける
+　　トランザクションが完了するまで、データベースの更新は行われない。
+
+　・JPQL
+　　参照系：JOIN FETCH句：関連Entityの件数分だけSQLが発行されるのを防ぐ仕組み
+　　更新系：Entity１件ずつ更新するより高速。 executeUpdate();　で実行。 refresh()で管理状態のEntityに変更反映。
+　
+　・Spring Data
+  Model（entity）からRepositry層を実装するのを自動化する。
+  Spring Data Common, Spring Data JPA, Spring Data Redis, Spring Data RESTなどサブプロジェクト群で構成される。
+  　
+　・Spring Data JPA
+　 Repositoryのインターフェースを作成して、アノテーションやメソッドを定義すだけで、Entityの参照・更新が行えるようになる。
+　 JpaRepositoryインターフェースを継承するRepositoryインターフェースを実装する。
+ 　public interface ?Repository extends JpaRepository<扱いたいEntityのクラス名, 扱いたいEntityの主キー> {空でいい}
+　 これだけでSpingのJpaReposityの実装クラス(SimpleJpaRepository)のメソッドを使える。（内部でプロキシクラスが生成される）
+
+　・Spring Data JPAの有効化
+　　pom.xml編集。
+　　DataSource定義。
+　　JavaConfigでEntityManagerFactory BeanをDIコンテナに登録。
+　　JavaConfigでJpaTransactionManager BeanをDIコンテナに登録。@Transactionlを利用可能に。
+　　@EnableJpaRepositories(パッケージ名)をJpaConfigクラスにつけて、Spring Data JPAを初期設定。
+　　パッケージ名はRepositoryインターフェースやカスタムRepositoryクラスのパッケージ。
+
+　・JPQLによるSping JPSデータアクセス
+　　方法１：@Queryの使用
+　　　・@QueryアノテーションでJPQLクエリを記述し、実装のないメソッドに付与することで、そのクエリをメソッドから実行できる。メソッドが実装されている場合も@Queueが優先。
+　　　・JPQLのパラメータがある場合は、@Param(JPWLのパラメータ名)をメソッドの引数につけることで、メソッド引数の値をJPQLへ渡せる
+　　方法２：メソッド名からクエリを生成（参照系のみ）
+　　　Repositoryインターフェースに、以下のルールでメソッドを定義する。
+　　　・find...By
+　　　・read...By
+ 　　　・query...By
+ 　　　・count...By
+ 　　　・get...By
+ 　　　...はEntityのプロパティ名
+ 　　　Byより後ろはWHERE句に使うプロパティ名。And,Or,Between,LessThan,GreaterThan,Likeなど使える 
+ 　　　OrderBy<プロパティ名>Asc または OrderBy<プロパティ名>Descで順指定
+ 　　　ネストしているプロパティ名は_で区切る
+
+　　・排他制御 
+　　　Repositoryのクエリメソッドに@Lock（LockModeType.?）をつける
+
+　　・ページネーション
+　　　クエリメソッドに、@Pagenationをつけた引数を追加する。Page<T>型でクエリメソッドの実行結果を受け取る。
+
+　　・Repositoryへのカスタムメソッドの追加
+　　　カスタムメソッドを定義したインターフェース（名前はRepositoryインターフェース名Custom）と、実装クラスをを作成する。
+　　　RepositoryにカスタムRepositoryインターフェースを継承させる。
+
+　　・@EntityListener
+　　　Entityクラスにつけると、そのEntityに対するイベントを検知する。
+　　　プロパティに@CreatedByなどを指定することで監査データを埋め込める。AuditorAwareインターフェースを定義してとる監査データの種類を指定する。
