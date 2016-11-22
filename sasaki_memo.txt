@@ -1,134 +1,118 @@
---- 設計 -------------
-■画面設計
-■ER図作成
-■テーブル構造決め（usr, meeting_room, reservable_room：日付とその日に予約可能な部屋ID, reservation）
-■パッケージ構成決め
-　・domain
-　　　・model
-　　　・repository
-　　　・service
-　・app
-　　　・controller
-　　　・view
-■サービスエンドポイント設計
+・マイクロサービスに行く前に段階がある、基本に対応してから検討してほしい。今日はCloud Frendryまで。
+　https://www.enterpriseirregulars.com/103240/cloud-native-nice-get/
+　・No Filesystem
+　・Self Contained application プロセスとしてアプリをたちあげろ.JavaEE使うな
+　・Platform Managed ports and addressing 
 
---- 環境構築 ------------
-■プロジェクトセットアップ
-　・Spring Boot (JPA, PostgreSQL, Thymeleaf, Web, 後からSpring Security)
+・ソース変更点
+　・@GetMapping, @PostMapping
+　・Spring Security 4.1から、パスワードエンコードのJavaConfigいらなくなったので消した
+　・プロパティファイル application-cloud.properties 追加
 
-■パッケージ作成
+■cf push
+　・クラウド環境では、外から環境変数にアタッチするのがベストプラクティス
+　・「管理プロセス」　管理タスクを１回かぎりのタスクとして実行せよ
+　　- SPRING_DATASOURCE_INITIALIZEがこれ
+　　※本来はFlywayを使う。DBのバージョンを見てアップデートしてくれる。
 
-■PostgreSQLセットアップ
-　・インストール
-　・ユーザの作成
-　・データベースの作成
+ ・AutoReconfigure
+ 　CF上でSpringを使うときのみ働く。
+ 　MySQLのサービスがバインドされていることを認識して、DIコンテナのデータソースを書き換える。
+ 　（application.propertiesの設定は無視される。）
+　 バインドしたタイミングで、ID/PW、TagもCFが生成し環境変数に埋め込む 
 
-■pom.xml編集
-　・ThymeleafでDate and Time APIを使うためのライブラリ導入
+ ・SpringCloudConnector
+ 　AutoReconfigureを上書きできる（むしろ自分でBean書いても上書きできない）
+ 　今回はMySQLのコネクションプールを2にする。
+ 　※AutoReconfiureはコネクションプールを4にしちゃう。本番では使えない。
+ 　※AutoReconfigureがスキップされたかどうかは、cf logsで確認 "Skipping auto-reconfiguring"
+ 
+ ここまでで、プロセスと、ポートを外からバインドされている
+ （Spring Bootは起動時にPORT環境変数をサーバポートに使うように設定されていて、CFがPORT環境変数を設定している）
+ 
+ ■スケールアウト
+ ・JsessionIdをたてて送るので、セッションIDが同じ間は同じインスタンスにいく
+ ※今はセッションが共有できてないので、死んだノードにいた人は、再ログインさせられる。これを防ぐのがセッションのクラスタ化。
+ 
+ ■ログ
+ ・ログはストリームで扱え。標準出力に投げ込んで転送しろ。
+ 　CFは標準出力をAggregateする。
+・CF側で保存しているのは cf logs --recent のとこだけ
+　syslogかhttpで後れる
 
---- 設定 ------------------
-■プロパティの作成
-　・Bootでは、resources/application.properties
-　・DB接続先
-　・DBユーザ、PW
-　・Hibernate設定（エンティティクラスからDDLを自動生成するか、SQLのフォーマット、ログレベル）
-　・DataSource設定（DDLエンコード形式）
+■セッションのクラスタ化 【※spring-sessionをロードして、propertyでstoreを指定するだけ】
+　・ノードがダウンしても、ブルーグリーンデプロイメントでも再ログインなくせる
+　・12factorでは、スティッキーセッションに頼ってはいけない
+　・Spring Sessionがセッションを外においてくれるプロジェクト。Redisなどバックエンドは選べる。
+　・spring boot 1.4から、spring.session.store-type=ができた
+ ※Spring-Sessionにすると、Jsessionは使わなくなるので、スティッキーが外れる
+ 
+ --- 
+ これぐらいまでやってから、マイクロサービスにいってほしい。
+ じゃないと、落ちても復旧しない、ログとれない、スケールしたらセッション切れる・・・などなる。
+ 
+ ■Metric
+ ・PCFMetric
+ 　・アプリ開発のフィードバックループをまわすための仕組み。アプリをアップデートした後の反応を見るなど。
+ 　　なので長期のメトリックは想定してない。
 
-■テーブルの作成（DDL作成）　※Hibernateで自動生成もできる
-　・クラスパス直下にschema.sqlを作成 （Bootの機能で起動時に実行される）
+ ・Actuator
+ ・★重要：MetricsConfig.java　
+ 　スケールアウトに対応したMetricをだす構成(カウンタなど）。
+ 　デフォルトだとインスタンスごとのHashMapにメトリックとるところをRedisにとるコンフィグ。
+ 　画面図のper instanceとper applicationとなっているのがそれ。
+ 　本の図のページで解説されていたMetricReaderなどのカスタマイズをしている。　★貴重なサンプル
+ ・AdminSecurityConfig.java　
+ actuatorのエンドポイントのセキュリティ設定
+ @Order(-5)でSecurityConfigファイルの優先度を指定している。 
+ 
+ ■Blue-Green
+ ・AutoPilotプラグイン
+  cf zero-downtime-push mrs-ss -f manifest.yml
+  古いアプリを勝手に削除しちゃう。のでこれはblue-greenではない。
+ ★ビルドパックのバージョンをゼロダウンタイムであげるデモ。脆弱性対策を無停止でできる。
+ 
+ -----
+ ここまでやって、Cloud Frendry。ここまでやってからマイクロサービスへ。
+JavaEEとかこのレベルもやらずにMicroService対応とか言っている。
+ 
+ ⇒ これをマイクロサービスにしたソースも書いている。
+ https://github.com/mrs-services/
+　 ★Spring Cloudてんこ盛り構成
+  OAuth, jepkin, spring cloud contract（テスト）, netflix oss
 
---- 実装 ------------
-■Modelクラスの作成（JPAエンティティの作成）
-　・クラスに、@Entityをつける
-　・クラスに、@Table(name = "テーブル名"）でテーブルとマッピングする。
-　・主キーになるプロパティに、@Idをつける
-　・主キーを自動生成する場合は、@GenerateValue
+ -----
+ Springの今後
+ 
+                         Spring Web Reactive
+Servletの代わりにノンブロッキングなコンテナに変わる   Http Reactive
 
-　・複合主キーには、@EmbeddedIdをつける
-　・複合キーを表すクラスには、@Embeddableをつける
+今までのプログラミングモデルでリアクティブを書ける、のと、
+新しいプログラミングモデルでやるのがでる
 
-　・プロパティにマッピングさせるカラムを@Columnで指定する。省略した場合はプロパティ名の大文字。
+サーバレス
+　Spring Cloud Data Flow（Spring XDから移行した）
+  入力-変換-出力をGUIで設定。各モジュールがSpring Bootアプリ（他でもいい）。
+　ストリームも単発処理(Spring Cloud Task)もできる
 
-　・外部キーになるプロパティには、@ManyToOneなどで関連を指定し、　※Roomなど単数型のプロパティにつけることになる
-　・@OneToMany（mappedBy="", cascade=CascadeType.ALL) ※List型などの複数型のプロパティにつけることになる
-　・@JoinColumn(name="外部キーとするカラム名")を指定する
-　・@MapsId("")は、参照先が複合クラスのとき、JoinColumnで指定した外部キーとマッピングさせるフィールドを指定する
-　・mappedByは、双方向の場合の外部キーの指定。一方が@JoinColumnしている場合に他方はこうれを使うことで双方向だとわかりやすい。
-　　
-■Repositoryクラスの作成
-　・JpaRepositoryインターフェースを継承するRepositoryインターフェースを実装する。
-　 　public interface ?Repository extends JpaRepository<扱いたいEntityのクラス名, 扱いたいEntityの主キーのクラス名> {空でいい}
+　データマイクロサービス
+　unixでパイプでつなぐような処理を、ひとつひとつマイクロサービスで、
+　パイプがメッセージブローカ（Kafka等）
+　プラットフォームはCF, Kubernetes, ...
 
-　・参照系メソッドを追加する場合は、以下の方法が使える。
-　　（または、@QueueでJPQLを指定してメソッドにつける。参照系以外はこれじゃないとだめ）
-　　Repositoryインターフェースに、以下のルールでメソッドを定義する。
-　　　・find...By
-　　　・read...By
- 　　　・query...By
- 　　　・count...By
- 　　　・get...By
- 　　　...はEntityのプロパティ名
- 　　　Byより後ろはWHERE句に使うプロパティ名。And,Or,Between,LessThan,GreaterThan,Likeなど使える 
- 　　　OrderBy<プロパティ名>Asc または OrderBy<プロパティ名>Descで順指定
- 　　　ネストしているプロパティ名は_で区切る
+stream createコマンドで、入力モジュール、出力モジュールなど指定すると、
+たとえばCFなら、それぞれSpring Bootアプリデプロイし、
+サービスバインドし、間をメッセージキューでつなぐところまでやってくれる
+（サーバレスな使い方）
 
-■Serviceクラスの作成
-　・@Serviceをクラスにつける
-　・トランザクション制御するなら、@Transactionalをつける
-　・@Autowiredで、使いたいRepositoryクラスをインジェクションする
-　・Repositoryメソッドをコールして処理する
+Spring Cloud Task Programming Model
 
-■Controllerクラスの作成
-　・@Controllerをクラスにつける
-　・@RequestMapping("")をつけてURLパスを指定する
-　　URLパスから値をとりたい場合は{date}などとパラメータ名を{}で囲む
-　　※return文の中でもこのプレースホルダは使えるs
-　・@RequestMapping(medhot = RequestMethod.?)をつけてHTTPメソッドを指定する
-　・URLパスから値を取得したい引数には、@PathValiableを指定する
-　・@Autowiredで、Serviceクラスをインジェクションする
-　・Serviceメソッドをコールして処理する
-　・Viewに渡したデータは、Model#addAttribute(値, パラメータ名)でmodelに格納する
-　 または、@ModelAttributeをつけたメソッドでModelに格納するオブジェクトを作成する。
-　・戻り値に、View名を指定する （Bootでは、クラスパス直下のtemplates/View名.htmlがパスになる）
-
-■Viewクラスの作成
-　・クラスパス直下のtemplates/View名.htmlを作成する
-　・htmlはThymeleafのタグ <th:?>を使った記述する
-
-■例外の作成
-　・RuntimeExceptionを継承するクラスを実装する
-
-■DBデータの投入
-　・Bootでは、クラスパス直下のdata.sqlが起動時に実行される
- 　・PL/pgSQLでは区切り文字;は文法が衝突するので、/;に変更。application.propertiesに区切り文字を指定。
-
-■Validationの実装
-　・メソッドの引数に、@Validatedをつけると、入力チェックが行われる（フォームオブジェクトなど）
-　・バリデーションルールを設定するには、アノテーションを実装する
-　　@Documented
-  @Constraint(validatedBy = {バリデーション処理を実装するクラス名})
-  @Target({METHOD, FIELD< ANNOTATION_TYPE, CONSTRACTOR, PARAMETER, TYPE})
-  @Retention(RUNTIME)
-  　public @Interface アノテーション名 {
-    Spring message() default "{mrs.app.reservation.ThirdMinutesUnit.message}";
-    ...
-  }
-
-■Lockの実装（Spring Data JPA)
-　・Repositoryのクエリメソッドに@Lock（LockModeType.?）をつける
-
-■認証・認可の実装（Spring Security）
-　・pom.xmlの編集
-　・UserDetailsインターフェースの実装クラスを作成し、ユーザ情報を管理するクラス（get,set,isなどもってる）を実装する。
-　・DB内等のユーザ情報からUserDtailsインターフェースの実装クラスを生成する、UserDetailServiceインターフェースの実装クラスを作成する。
-　　この際、DBからユーザ情報を取得するのに必要なので、UserRepositoryインターフェースも作成する
-　　UserDetailServiceの実装クラスでは、上記作成したUserDetail実装クラスのオブジェクトを返す
-　・login画面を表示するコントローラと、画面を作成する
-　・ログアウトボタンを作成する
-　・WebSecurityConfig.javaを編集して、Spring Securityの設定を行う
-　　@EnableWebSecurityを付与
-　　pasWordEncoder()メソッド定義
-　　他、有効化するパス、遷移先、UserDetailServiceの指定など
-
-
-■jarの作成
+　Q. Eureka, Ribbonをつかった場合のblue-green deployment
+★A. ベストプラクティス検討中.
+　 Eurikaのリフレッシュ時間を相当早くしないと、CFのデプロイはゼロダウンタイムだが、
+　 Eurekaへのサービスインスタンス登録に時間がかかるので、旧インスタンスに割り当てられる時間ができてしまう
+ https://metrics.run.pez.pivotal.io/
+ https://github.com/joshlong/operationalized-applications-meetup/blob/master/src/main/java/com/example/DemoApplication.java
+ https://github.com/spring-cloud/spring-cloud-netflix/issues/1290
+ http://cloud.rohitkelapure.com/2016/06/multi-line-java-stack-traces-out-of.html
+ 

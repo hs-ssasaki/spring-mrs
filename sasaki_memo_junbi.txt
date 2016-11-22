@@ -1,0 +1,134 @@
+--- 設計 -------------
+■画面設計
+■ER図作成
+■テーブル構造決め（usr, meeting_room, reservable_room：日付とその日に予約可能な部屋ID, reservation）
+■パッケージ構成決め
+　・domain
+　　　・model
+　　　・repository
+　　　・service
+　・app
+　　　・controller
+　　　・view
+■サービスエンドポイント設計
+
+--- 環境構築 ------------
+■プロジェクトセットアップ
+　・Spring Boot (JPA, PostgreSQL, Thymeleaf, Web, 後からSpring Security)
+
+■パッケージ作成
+
+■PostgreSQLセットアップ
+　・インストール
+　・ユーザの作成
+　・データベースの作成
+
+■pom.xml編集
+　・ThymeleafでDate and Time APIを使うためのライブラリ導入
+
+--- 設定 ------------------
+■プロパティの作成
+　・Bootでは、resources/application.properties
+　・DB接続先
+　・DBユーザ、PW
+　・Hibernate設定（エンティティクラスからDDLを自動生成するか、SQLのフォーマット、ログレベル）
+　・DataSource設定（DDLエンコード形式）
+
+■テーブルの作成（DDL作成）　※Hibernateで自動生成もできる
+　・クラスパス直下にschema.sqlを作成 （Bootの機能で起動時に実行される）
+
+--- 実装 ------------
+■Modelクラスの作成（JPAエンティティの作成）
+　・クラスに、@Entityをつける
+　・クラスに、@Table(name = "テーブル名"）でテーブルとマッピングする。
+　・主キーになるプロパティに、@Idをつける
+　・主キーを自動生成する場合は、@GenerateValue
+
+　・複合主キーには、@EmbeddedIdをつける
+　・複合キーを表すクラスには、@Embeddableをつける
+
+　・プロパティにマッピングさせるカラムを@Columnで指定する。省略した場合はプロパティ名の大文字。
+
+　・外部キーになるプロパティには、@ManyToOneなどで関連を指定し、　※Roomなど単数型のプロパティにつけることになる
+　・@OneToMany（mappedBy="", cascade=CascadeType.ALL) ※List型などの複数型のプロパティにつけることになる
+　・@JoinColumn(name="外部キーとするカラム名")を指定する
+　・@MapsId("")は、参照先が複合クラスのとき、JoinColumnで指定した外部キーとマッピングさせるフィールドを指定する
+　・mappedByは、双方向の場合の外部キーの指定。一方が@JoinColumnしている場合に他方はこうれを使うことで双方向だとわかりやすい。
+　　
+■Repositoryクラスの作成
+　・JpaRepositoryインターフェースを継承するRepositoryインターフェースを実装する。
+　 　public interface ?Repository extends JpaRepository<扱いたいEntityのクラス名, 扱いたいEntityの主キーのクラス名> {空でいい}
+
+　・参照系メソッドを追加する場合は、以下の方法が使える。
+　　（または、@QueueでJPQLを指定してメソッドにつける。参照系以外はこれじゃないとだめ）
+　　Repositoryインターフェースに、以下のルールでメソッドを定義する。
+　　　・find...By
+　　　・read...By
+ 　　　・query...By
+ 　　　・count...By
+ 　　　・get...By
+ 　　　...はEntityのプロパティ名
+ 　　　Byより後ろはWHERE句に使うプロパティ名。And,Or,Between,LessThan,GreaterThan,Likeなど使える 
+ 　　　OrderBy<プロパティ名>Asc または OrderBy<プロパティ名>Descで順指定
+ 　　　ネストしているプロパティ名は_で区切る
+
+■Serviceクラスの作成
+　・@Serviceをクラスにつける
+　・トランザクション制御するなら、@Transactionalをつける
+　・@Autowiredで、使いたいRepositoryクラスをインジェクションする
+　・Repositoryメソッドをコールして処理する
+
+■Controllerクラスの作成
+　・@Controllerをクラスにつける
+　・@RequestMapping("")をつけてURLパスを指定する
+　　URLパスから値をとりたい場合は{date}などとパラメータ名を{}で囲む
+　　※return文の中でもこのプレースホルダは使えるs
+　・@RequestMapping(medhot = RequestMethod.?)をつけてHTTPメソッドを指定する
+　・URLパスから値を取得したい引数には、@PathValiableを指定する
+　・@Autowiredで、Serviceクラスをインジェクションする
+　・Serviceメソッドをコールして処理する
+　・Viewに渡したデータは、Model#addAttribute(値, パラメータ名)でmodelに格納する
+　 または、@ModelAttributeをつけたメソッドでModelに格納するオブジェクトを作成する。
+　・戻り値に、View名を指定する （Bootでは、クラスパス直下のtemplates/View名.htmlがパスになる）
+
+■Viewクラスの作成
+　・クラスパス直下のtemplates/View名.htmlを作成する
+　・htmlはThymeleafのタグ <th:?>を使った記述する
+
+■例外の作成
+　・RuntimeExceptionを継承するクラスを実装する
+
+■DBデータの投入
+　・Bootでは、クラスパス直下のdata.sqlが起動時に実行される
+ 　・PL/pgSQLでは区切り文字;は文法が衝突するので、/;に変更。application.propertiesに区切り文字を指定。
+
+■Validationの実装
+　・メソッドの引数に、@Validatedをつけると、入力チェックが行われる（フォームオブジェクトなど）
+　・バリデーションルールを設定するには、アノテーションを実装する
+　　@Documented
+  @Constraint(validatedBy = {バリデーション処理を実装するクラス名})
+  @Target({METHOD, FIELD< ANNOTATION_TYPE, CONSTRACTOR, PARAMETER, TYPE})
+  @Retention(RUNTIME)
+  　public @Interface アノテーション名 {
+    Spring message() default "{mrs.app.reservation.ThirdMinutesUnit.message}";
+    ...
+  }
+
+■Lockの実装（Spring Data JPA)
+　・Repositoryのクエリメソッドに@Lock（LockModeType.?）をつける
+
+■認証・認可の実装（Spring Security）
+　・pom.xmlの編集
+　・UserDetailsインターフェースの実装クラスを作成し、ユーザ情報を管理するクラス（get,set,isなどもってる）を実装する。
+　・DB内等のユーザ情報からUserDtailsインターフェースの実装クラスを生成する、UserDetailServiceインターフェースの実装クラスを作成する。
+　　この際、DBからユーザ情報を取得するのに必要なので、UserRepositoryインターフェースも作成する
+　　UserDetailServiceの実装クラスでは、上記作成したUserDetail実装クラスのオブジェクトを返す
+　・login画面を表示するコントローラと、画面を作成する
+　・ログアウトボタンを作成する
+　・WebSecurityConfig.javaを編集して、Spring Securityの設定を行う
+　　@EnableWebSecurityを付与
+　　pasWordEncoder()メソッド定義
+　　他、有効化するパス、遷移先、UserDetailServiceの指定など
+
+
+■jarの作成
